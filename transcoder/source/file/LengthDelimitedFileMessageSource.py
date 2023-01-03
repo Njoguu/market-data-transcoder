@@ -17,8 +17,6 @@
 # limitations under the License.
 #
 
-import os
-
 from transcoder.source.file.FileMessageSource import FileMessageSource
 
 
@@ -31,24 +29,36 @@ class LengthDelimitedFileMessageSource(FileMessageSource):
 
     def __init__(self, file_path: str, skip_bytes: int = 0, endian: str = 'big',
                  message_skip_bytes: int = 0, message_length_byte_length: int = 2):
-        super().__init__(file_path)
+        super().__init__(file_path, file_open_mode='rb')
         self.skip_bytes = skip_bytes
         self.endian = endian
         self.message_skip_bytes = message_skip_bytes
         self.message_length_byte_length = message_length_byte_length
 
-    def open(self):
-        self.file_size = os.path.getsize(self.path)
-        self.file_handle = open(self.path, 'rb')  # pylint: disable=consider-using-with
+    def prepare(self):
         if self.skip_bytes > 0:
             self.file_handle.read(self.skip_bytes)
 
     def get_message_iterator(self):
-        while self.file_handle.tell() < self.file_size:
+        # pylint: disable=duplicate-code
+        while True:
             if self.message_skip_bytes > 0:
-                self.file_handle.read(self.message_skip_bytes)
+                # Skip bytes based on the message_skip_bytes value
+                skipped_bytes = self.file_handle.read(self.message_skip_bytes)
+                if not skipped_bytes:
+                    break
 
-            message_length = int.from_bytes(self.file_handle.read(self.message_length_byte_length), self.endian)
+            # Read the message length
+            msg_len_bytes = self.file_handle.read(self.message_length_byte_length)
+            if not msg_len_bytes:
+                break
+
+            message_length = int.from_bytes(msg_len_bytes, self.endian)
             self.increment_count()
-            yield self.file_handle.read(message_length)
+
+            # Get the message
+            msg_bytes = self.file_handle.read(message_length)
+            if not msg_bytes:
+                break
+            yield msg_bytes
             self._log_percentage_read()
